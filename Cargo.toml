@@ -1,0 +1,19 @@
+[package]
+name = "stl2ascii"
+version = "0.1.0"
+edition = "2024"
+description = "ASCII STL 3D viewer — TUI, snapshot, or stdio MCP"
+readme = "README.md"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+crossterm = "0.29.0"
+glam = "0.34.1"
+ratatui = "0.30.2"
+rmcp = { version = "3.7.0", features = ["server", "transport-io"] }
+schemars = "1.2.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+stl_io = "0.11.0"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "io-util", "io-std"] }

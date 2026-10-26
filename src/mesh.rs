@@ -6,7 +6,7 @@ use glam::Vec3;
 use serde::Serialize;
 
 use crate::aabb::AabbBox;
-use crate::topology::{self, TopologyStats};
+use crate::topology::{self, ComponentDetail, TopologyStats};
 
 #[derive(Debug, Clone)]
 pub struct Triangle {
@@ -28,6 +28,9 @@ pub struct MeshStats {
     pub components: usize,
     pub is_closed: bool,
     pub genus: Option<i32>,
+    pub genus_notes: String,
+    /// Top 5 connected components by |volume|.
+    pub components_detail: Vec<ComponentDetail>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,14 +99,9 @@ fn build_stats(triangles: &[Triangle], topo: &TopologyStats) -> MeshStats {
         components: topo.components,
         is_closed: topo.is_closed,
         genus: topo.genus,
+        genus_notes: topo.genus_notes.clone(),
+        components_detail: topo.components_detail.clone(),
     }
-}
-
-fn topo_from_soup(triangles: &[Triangle]) -> TopologyStats {
-    let faces: Vec<[usize; 3]> = (0..triangles.len())
-        .map(|i| [i * 3, i * 3 + 1, i * 3 + 2])
-        .collect();
-    topology::compute(triangles.len() * 3, &faces)
 }
 
 impl Mesh {
@@ -140,7 +138,8 @@ impl Mesh {
             });
         }
 
-        let topo = topology::compute(vertices.len(), &faces);
+        // Weld by exact STL vertex indices (not float hash).
+        let topo = topology::compute(&vertices, &faces);
         let stats = build_stats(&triangles, &topo);
 
         Ok(Self {
@@ -156,7 +155,8 @@ impl Mesh {
         for tri in &self.triangles {
             triangles.extend(crate::clip::clip_triangle_aabb(tri, clip));
         }
-        let topo = topo_from_soup(&triangles);
+        let positions: Vec<[Vec3; 3]> = triangles.iter().map(|t| t.vertices).collect();
+        let topo = topology::compute_from_positions(&positions);
         let stats = build_stats(&triangles, &topo);
         Self {
             triangles,

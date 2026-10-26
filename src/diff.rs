@@ -19,8 +19,16 @@ pub struct MeshDiffResult {
     pub samples_per_side: usize,
     pub histogram_a_to_b: Vec<HistBucket>,
     pub histogram_b_to_a: Vec<HistBucket>,
+    /// Volume in A but not B (alias: volume_missed).
     pub volume_a_outside_b: f32,
+    /// Volume in B but not A (alias: volume_extra).
     pub volume_b_outside_a: f32,
+    /// Alias for volume_b_outside_a (material in B not in A).
+    pub volume_extra: f32,
+    /// Alias for volume_a_outside_b (material in A not in B).
+    pub volume_missed: f32,
+    /// True when volumes were integrated only inside the clip box.
+    pub clip_applied: bool,
     /// Bounds used for occupancy volumes: clip box when clip was set, else union mesh AABB.
     pub volume_bounds: [f32; 6],
     pub voxel_size: f32,
@@ -125,8 +133,8 @@ fn occupancy_outside(
     (a_out as f32 * vox_vol, b_out as f32 * vox_vol)
 }
 
-/// Compare meshes. When `volume_clip` is set, outside volumes are integrated only inside that box
-/// (triangle filter for histograms may still use a looser triangle-AABB cull separately).
+/// Compare meshes. When `volume_clip` is set, outside volumes are integrated only inside that box.
+/// Callers should hard-clip both meshes to the same box before calling when clip is set.
 pub fn mesh_diff(
     mesh_a: &Mesh,
     mesh_b: &Mesh,
@@ -143,12 +151,13 @@ pub fn mesh_diff(
     let dist_ab: Vec<f32> = pts_a.iter().map(|p| grid_b.nearest_dist(*p)).collect();
     let dist_ba: Vec<f32> = pts_b.iter().map(|p| grid_a.nearest_dist(*p)).collect();
 
+    let clip_applied = volume_clip.is_some();
     let (amin, amax, bounds6, notes) = if let Some(clip) = volume_clip {
         (
             clip.min(),
             clip.max(),
             [clip.x, clip.y, clip.z, clip.dx, clip.dy, clip.dz],
-            "Distances are unsigned closest-point on hard-clipped meshes. Outside volumes are voxel occupancy ONLY inside volume_bounds (= the clip box). Prefer volume_in_box for tiny slabs. Raycast parity is approximate; open/non-manifold meshes are unreliable.",
+            "Distances are unsigned closest-point on hard-clipped meshes. Volumes (volume_extra=B∖A, volume_missed=A∖B) are voxel occupancy ONLY inside volume_bounds (= the clip box when clip_applied). Prefer volume_in_box for tiny slabs. Raycast parity is approximate; open/non-manifold meshes are unreliable.",
         )
     } else {
         let (amin, amax) = union_aabb(mesh_a, mesh_b);
@@ -157,7 +166,7 @@ pub fn mesh_diff(
             amin,
             amax,
             [amin.x, amin.y, amin.z, size.x, size.y, size.z],
-            "Distances are unsigned closest-point to the other mesh. Outside volumes use raycast parity over volume_bounds (union mesh AABB). Approximate; open/non-manifold meshes are unreliable. Pass clip for hard-cut meshes and clip-scoped volumes, or call volume_in_box.",
+            "Distances are unsigned closest-point to the other mesh. Volumes (volume_extra=B∖A, volume_missed=A∖B) use raycast parity over volume_bounds (union mesh AABB). Approximate; open/non-manifold meshes are unreliable. Pass clip for hard-cut meshes and clip-scoped volumes, or call volume_in_box.",
         )
     };
 
@@ -173,6 +182,9 @@ pub fn mesh_diff(
         histogram_b_to_a: hist_counts(&dist_ba),
         volume_a_outside_b: vol_a_out,
         volume_b_outside_a: vol_b_out,
+        volume_extra: vol_b_out,
+        volume_missed: vol_a_out,
+        clip_applied,
         volume_bounds: bounds6,
         voxel_size: voxel,
         grid_dims: dims,

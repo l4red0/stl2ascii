@@ -15,9 +15,11 @@ use crate::cli::{CameraPreset, ShadeMode};
 use crate::diff::{mesh_diff, volume_in_box};
 use crate::mcp_docs;
 use crate::mesh::Mesh;
+use crate::probe::{is_inside, parse_axis, slice_mesh};
 use crate::render::{
     render_deviation, render_framed, render_overlay, resolve_size,
 };
+use glam::Vec3;
 
 #[derive(Clone, Default)]
 pub struct StlMcp;
@@ -138,7 +140,7 @@ pub struct CamParams {
     #[schemars(description = "Inner height in characters. Alone → auto width from AABB aspect.")]
     pub height: Option<usize>,
     #[serde(default)]
-    #[schemars(description = "Hard-cut AABB [x,y,z,dx,dy,dz]. Auto-fits camera unless focus/radius set. Echoed on status line.")]
+    #[schemars(description = "Hard-cut AABB [x,y,z,dx,dy,dz] (Sutherland–Hodgman + clamp into box). Auto-fits camera unless focus/radius set. Echoed on status line.")]
     pub clip: Option<Vec<f32>>,
 }
 
@@ -192,7 +194,7 @@ pub struct MeshDiffParams {
     #[schemars(description = "Path to mesh B.")]
     pub path_b: String,
     #[serde(default)]
-    #[schemars(description = "Hard-cut both meshes and set volume_bounds to this box [x,y,z,dx,dy,dz].")]
+    #[schemars(description = "Hard-cut both meshes and set volume_bounds to this box [x,y,z,dx,dy,dz]. Sets clip_applied; volumes are volume_extra=B∖A and volume_missed=A∖B.")]
     pub clip: Option<Vec<f32>>,
     #[serde(default)]
     #[schemars(description = "Surface samples per mesh (default 20000, clamp 100…200000).")]
@@ -212,6 +214,30 @@ pub struct VolumeInBoxParams {
     #[serde(default)]
     #[schemars(description = "Grid along longest box axis (default 64, clamp 8…64). See estimated_error and grid_used.")]
     pub grid: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct IsInsideParams {
+    #[schemars(description = "Local filesystem path to ASCII or binary STL.")]
+    pub path: String,
+    #[schemars(description = "Query point [x,y,z].")]
+    pub point: Vec<f32>,
+    #[serde(default)]
+    #[schemars(description = "Optional hard-cut AABB [x,y,z,dx,dy,dz] before the test.")]
+    pub clip: Option<Vec<f32>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SliceParams {
+    #[schemars(description = "Local filesystem path to ASCII or binary STL.")]
+    pub path: String,
+    #[schemars(description = "Plane normal axis: x|y|z.")]
+    pub axis: String,
+    #[schemars(description = "Plane position along axis.")]
+    pub value: f32,
+    #[serde(default)]
+    #[schemars(description = "Optional hard-cut AABB [x,y,z,dx,dy,dz] before slicing.")]
+    pub clip: Option<Vec<f32>>,
 }
 
 fn prep_camera(
@@ -360,6 +386,36 @@ impl StlMcp {
         let mesh = load_mesh(&p.path, None)?;
         let result = volume_in_box(&mesh, b, p.grid.unwrap_or(64));
         json_ok(result)
+    }
+
+    #[tool(description = mcp_docs::IS_INSIDE)]
+    fn is_inside(
+        &self,
+        Parameters(p): Parameters<IsInsideParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if p.point.len() != 3 {
+            return Err(McpError::invalid_params("point must be [x,y,z]", None));
+        }
+        let clip = parse_box6(p.clip).map_err(|e| McpError::invalid_params(e, None))?;
+        let mesh = load_mesh(&p.path, clip)?;
+        let pt = Vec3::new(p.point[0], p.point[1], p.point[2]);
+        json_ok(is_inside(&mesh, pt))
+    }
+
+    #[tool(description = mcp_docs::SLICE)]
+    fn slice(
+        &self,
+        Parameters(p): Parameters<SliceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let axis = parse_axis(&p.axis).map_err(|e| McpError::invalid_params(e, None))?;
+        let clip = parse_box6(p.clip).map_err(|e| McpError::invalid_params(e, None))?;
+        let mesh = load_mesh(&p.path, clip)?;
+        let result = slice_mesh(&mesh, axis, p.value);
+        let mut text = serde_json::to_string_pretty(&result)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        text.push('\n');
+        text.push_str(&result.ascii_preview);
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
     #[tool(description = mcp_docs::LIST_PRESETS)]

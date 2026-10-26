@@ -29,7 +29,7 @@ stl2ascii mcp
 }
 ```
 
-Tools: `render_stl`, `render_overlay`, `render_deviation`, `mesh_stats`, `mesh_diff`, `volume_in_box`, `list_presets`, `list_shade_modes`.  
+Tools: `render_stl`, `render_overlay`, `render_deviation`, `mesh_stats`, `mesh_diff`, `volume_in_box`, `is_inside`, `slice`, `list_presets`, `list_shade_modes`.  
 Full semantics live in MCP `instructions` and per-tool schemas.
 
 Conventions: local paths; `clip`/`box` = `[x,y,z,dx,dy,dz]`; overlay glyphs `#`/`%`/`*`; `volume_in_box` grid max 64 (`estimated_error` = one voxel volume).
@@ -44,6 +44,8 @@ stl2ascii diff <A> <B> [--clip …]
 stl2ascii volume-in-box <FILE> --box …
 stl2ascii overlay <A> <B> [--clip …]
 stl2ascii deviation <FILE> --ref <REF> [--clip …]
+stl2ascii is-inside <FILE> --point x,y,z [--clip …]
+stl2ascii slice <FILE> --axis x|y|z --value V [--clip …]
 ```
 
 ### Examples

@@ -7,6 +7,7 @@ mod diff;
 mod mcp;
 mod mcp_docs;
 mod mesh;
+mod probe;
 mod render;
 mod shade;
 mod spatial;
@@ -24,9 +25,11 @@ use crate::camera::{Camera, CameraArgs};
 use crate::cli::{Cli, Commands};
 use crate::diff::{mesh_diff, volume_in_box};
 use crate::mesh::Mesh;
+use crate::probe::{is_inside, parse_axis, slice_mesh};
 use crate::render::{
     render_deviation, render_framed, render_overlay, resolve_size,
 };
+use glam::Vec3;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -138,6 +141,30 @@ fn main() -> Result<()> {
             );
             let (w, h) = resolve_size(&mesh, width, height);
             print!("{}", render_deviation(&mesh, &href, &camera, w, h, clip));
+            return Ok(());
+        }
+        Some(Commands::IsInside { file, point, clip }) => {
+            if point.len() != 3 {
+                bail!("--point needs x,y,z");
+            }
+            let clip = parse_clip(clip)?;
+            let mesh = load_maybe_clip(&file, clip)?;
+            let result = is_inside(&mesh, Vec3::new(point[0], point[1], point[2]));
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            return Ok(());
+        }
+        Some(Commands::Slice {
+            file,
+            axis,
+            value,
+            clip,
+        }) => {
+            let axis = parse_axis(&axis).map_err(|e| anyhow::anyhow!(e))?;
+            let clip = parse_clip(clip)?;
+            let mesh = load_maybe_clip(&file, clip)?;
+            let result = slice_mesh(&mesh, axis, value);
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            print!("{}", result.ascii_preview);
             return Ok(());
         }
         None => {}

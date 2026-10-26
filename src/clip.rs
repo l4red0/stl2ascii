@@ -9,13 +9,17 @@ pub fn clip_triangle_aabb(tri: &Triangle, box_: AabbBox) -> Vec<Triangle> {
     let mn = box_.min();
     let mx = box_.max();
 
-    // Sutherland–Hodgman against six half-spaces
-    poly = clip_plane(poly, |p| p.x >= mn.x, |a, b| lerp_axis(a, b, 0, mn.x));
-    poly = clip_plane(poly, |p| p.x <= mx.x, |a, b| lerp_axis(a, b, 0, mx.x));
-    poly = clip_plane(poly, |p| p.y >= mn.y, |a, b| lerp_axis(a, b, 1, mn.y));
-    poly = clip_plane(poly, |p| p.y <= mx.y, |a, b| lerp_axis(a, b, 1, mx.y));
-    poly = clip_plane(poly, |p| p.z >= mn.z, |a, b| lerp_axis(a, b, 2, mn.z));
-    poly = clip_plane(poly, |p| p.z <= mx.z, |a, b| lerp_axis(a, b, 2, mx.z));
+    poly = clip_plane(poly, |p| p.x >= mn.x - 1e-7, |a, b| lerp_axis(a, b, 0, mn.x));
+    poly = clip_plane(poly, |p| p.x <= mx.x + 1e-7, |a, b| lerp_axis(a, b, 0, mx.x));
+    poly = clip_plane(poly, |p| p.y >= mn.y - 1e-7, |a, b| lerp_axis(a, b, 1, mn.y));
+    poly = clip_plane(poly, |p| p.y <= mx.y + 1e-7, |a, b| lerp_axis(a, b, 1, mx.y));
+    poly = clip_plane(poly, |p| p.z >= mn.z - 1e-7, |a, b| lerp_axis(a, b, 2, mn.z));
+    poly = clip_plane(poly, |p| p.z <= mx.z + 1e-7, |a, b| lerp_axis(a, b, 2, mx.z));
+
+    // Force verts into the box so floating error cannot leave geometry outside.
+    for p in &mut poly {
+        *p = clamp_into_box(*p, mn, mx);
+    }
 
     if poly.len() < 3 {
         return Vec::new();
@@ -42,6 +46,14 @@ pub fn clip_triangle_aabb(tri: &Triangle, box_: AabbBox) -> Vec<Triangle> {
         });
     }
     out
+}
+
+fn clamp_into_box(p: Vec3, mn: Vec3, mx: Vec3) -> Vec3 {
+    Vec3::new(
+        p.x.clamp(mn.x, mx.x),
+        p.y.clamp(mn.y, mx.y),
+        p.z.clamp(mn.z, mx.z),
+    )
 }
 
 fn lerp_axis(a: Vec3, b: Vec3, axis: usize, val: f32) -> Vec3 {

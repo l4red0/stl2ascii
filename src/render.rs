@@ -3,7 +3,6 @@ use glam::Vec3;
 use crate::aabb::AabbBox;
 use crate::camera::Camera;
 use crate::cli::ShadeMode;
-use crate::diff::HIST_EDGES;
 use crate::mesh::Mesh;
 use crate::shade::shade_char;
 use crate::spatial::TriGrid;
@@ -171,15 +170,22 @@ fn edge(ax: f32, ay: f32, bx: f32, by: f32, cx: f32, cy: f32) -> f32 {
     (cx - ax) * (by - ay) - (cy - ay) * (bx - ax)
 }
 
-fn dist_to_shade_t(d: f32) -> f32 {
-    // Map distance buckets to 0..1 for density ramp (6 levels including >1).
-    let edges = HIST_EDGES;
-    for (i, &e) in edges.iter().enumerate() {
-        if d <= e {
-            return (i as f32) / (edges.len() as f32);
-        }
+/// Glyph per distance bucket (matches `deviation_legend`).
+fn dist_to_glyph(d: f32) -> char {
+    // .≤0.01 :≤0.05 -≤0.1 =≤0.5 +≤1 #%>1
+    if d <= 0.01 {
+        '.'
+    } else if d <= 0.05 {
+        ':'
+    } else if d <= 0.1 {
+        '-'
+    } else if d <= 0.5 {
+        '='
+    } else if d <= 1.0 {
+        '+'
+    } else {
+        '#'
     }
-    1.0
 }
 
 pub fn render_grid(
@@ -209,6 +215,28 @@ pub fn render_grid(
     lines
 }
 
+fn clip_status_suffix(clip: Option<AabbBox>) -> String {
+    match clip {
+        Some(c) => format!(
+            " | clip:[{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}]",
+            c.x, c.y, c.z, c.dx, c.dy, c.dz
+        ),
+        None => String::new(),
+    }
+}
+
+/// Truncate `body` so `body + suffix` fits `width`, keeping `suffix` (e.g. clip) intact.
+fn truncate_keep_suffix(body: &str, suffix: &str, width: usize) -> String {
+    if width == 0 || body.len() + suffix.len() <= width {
+        return format!("{body}{suffix}");
+    }
+    let keep = width.saturating_sub(suffix.len()).saturating_sub(1);
+    let mut truncated: String = body.chars().take(keep).collect();
+    truncated.push('…');
+    truncated.push_str(suffix);
+    truncated
+}
+
 pub fn format_status(
     mesh: &Mesh,
     camera: &Camera,
@@ -220,7 +248,7 @@ pub fn format_status(
     let aspect = (width.max(1) as f32 / CHAR_ASPECT) / height.max(1) as f32;
     let (vmin, vmax) = camera.view_aabb(aspect);
     let s = &mesh.stats;
-    let mut line = format!(
+    let body = format!(
         "{} | {} | yaw:{:.0} pitch:{:.0} zoom:{:.2} | tris:{} AABB:{:.1}x{:.1}x{:.1} area:{:.1} vol:{:.1} closed:{} | view:[{:.1},{:.1},{:.1}]-[{:.1},{:.1},{:.1}]",
         mesh.basename(),
         shade.label(),
@@ -241,19 +269,12 @@ pub fn format_status(
         vmax[1],
         vmax[2],
     );
-    if let Some(c) = clip {
-        line.push_str(&format!(
-            " | clip:[{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}]",
-            c.x, c.y, c.z, c.dx, c.dy, c.dz
-        ));
-    }
-    if width == 0 || line.len() <= width {
-        line
-    } else {
-        let mut truncated = line.chars().take(width.saturating_sub(1)).collect::<String>();
-        truncated.push('…');
-        truncated
-    }
+    truncate_keep_suffix(&body, &clip_status_suffix(clip), width)
+}
+
+/// Numeric bucket → glyph legend for deviation status (matches dist_to_glyph).
+pub fn deviation_legend() -> &'static str {
+    " .≤0.01 :≤0.05 -≤0.1 =≤0.5 +≤1 #%>1"
 }
 
 fn frame_lines(grid: &[String], status: &str) -> String {
@@ -318,7 +339,7 @@ pub fn render_overlay(
     }
     let aspect = (w as f32 / CHAR_ASPECT) / h as f32;
     let (vmin, vmax) = camera.view_aabb(aspect);
-    let mut status = format!(
+    let body = format!(
         "{}+# {}+% both=* | yaw:{:.0} pitch:{:.0} zoom:{:.2} | view:[{:.1},{:.1},{:.1}]-[{:.1},{:.1},{:.1}]",
         mesh_a.basename(),
         mesh_b.basename(),
@@ -332,15 +353,7 @@ pub fn render_overlay(
         vmax[1],
         vmax[2],
     );
-    if let Some(c) = clip {
-        status.push_str(&format!(
-            " | clip:[{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}]",
-            c.x, c.y, c.z, c.dx, c.dy, c.dz
-        ));
-    }
-    if status.len() > w + 2 {
-        status = status.chars().take(w + 1).collect::<String>() + "…";
-    }
+    let status = truncate_keep_suffix(&body, &clip_status_suffix(clip), w + 2);
     frame_lines(&grid, &status)
 }
 
@@ -364,30 +377,23 @@ pub fn render_deviation(
             let idx = y * w + x;
             if let Some(world) = buf.world[idx] {
                 let d = grid_ref.nearest_dist(world);
-                row.push(shade_char(ShadeMode::Density, dist_to_shade_t(d)));
+                row.push(dist_to_glyph(d));
             } else {
                 row.push(' ');
             }
         }
         grid.push(row);
     }
-    let mut status = format!(
-        "{} vs {} | deviation buckets <=0.01..>1 → .:-=+*#%@ | yaw:{:.0} pitch:{:.0} zoom:{:.2}",
+    let body = format!(
+        "{} vs {} |{} | yaw:{:.0} pitch:{:.0} zoom:{:.2}",
         mesh.basename(),
         mesh_ref.basename(),
+        deviation_legend(),
         camera.yaw,
         camera.pitch,
         camera.zoom,
     );
-    if let Some(c) = clip {
-        status.push_str(&format!(
-            " | clip:[{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}]",
-            c.x, c.y, c.z, c.dx, c.dy, c.dz
-        ));
-    }
-    if status.len() > w + 2 {
-        status = status.chars().take(w + 1).collect::<String>() + "…";
-    }
+    let status = truncate_keep_suffix(&body, &clip_status_suffix(clip), w + 2);
     frame_lines(&grid, &status)
 }
 

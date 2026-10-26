@@ -101,7 +101,7 @@ const LONG_ABOUT: &str = "\
 ASCII STL viewer + mesh QA (TUI, snapshot, stdio MCP).
 
 Features: ASCII/binary STL; hard clip; mesh_stats; mesh_diff; volume_in_box;
-overlay; deviation render; focus. Primary interface: `stl2ascii mcp`.
+is_inside; slice; overlay; deviation; focus. Primary interface: `stl2ascii mcp`.
 ";
 
 #[derive(Debug, Parser)]
@@ -246,5 +246,26 @@ pub enum Commands {
         pitch: Option<f32>,
         #[arg(long)]
         zoom: Option<f32>,
+    },
+    /// Point-in-mesh (raycast parity)
+    IsInside {
+        file: PathBuf,
+        /// Point x,y,z
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        point: Vec<f32>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        clip: Option<Vec<f32>>,
+    },
+    /// Plane section segments + ASCII preview
+    Slice {
+        file: PathBuf,
+        /// Axis x|y|z
+        #[arg(long)]
+        axis: String,
+        /// Plane position along axis
+        #[arg(long, allow_hyphen_values = true)]
+        value: f32,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        clip: Option<Vec<f32>>,
     },
 }

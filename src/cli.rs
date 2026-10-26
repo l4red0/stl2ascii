@@ -91,30 +91,24 @@ impl std::fmt::Display for ShadeMode {
 }
 
 const AFTER_HELP: &str = "\
-Keys (interactive):
-  arrows/hjkl  rotate    +/-  zoom    wasd  pan
-  m  toggle shade        r  reset camera    q/Esc  quit
-
-MCP:  stl2ascii mcp   (stdio; stdout is protocol — logs on stderr)
+Keys: arrows/hjkl rotate  +/- zoom  wasd pan  m shade  r reset  q quit
+MCP:  stl2ascii mcp   (prefer MCP for full tool docs)
+zoom>1 closer; pan is fraction of fit extent; --focus x,y,z --radius R
+clip/box: x,y,z,dx,dy,dz (min + size)
 ";
 
 const LONG_ABOUT: &str = "\
-ASCII STL 3D viewer — TUI, snapshot, or stdio MCP.
+ASCII STL viewer + mesh QA (TUI, snapshot, stdio MCP).
 
-Features:
-  • ASCII and binary STL
-  • Framed ASCII 3D view with pan / zoom / rotate
-  • Shade modes: density | lines
-  • Status bar: camera + mesh stats (tris, AABB, area, volume)
-  • --snapshot one-shot ASCII to the terminal
-  • mcp subcommand: local stdio MCP (render_stl, mesh_stats, …)
+Features: ASCII/binary STL; hard clip; mesh_stats; mesh_diff; volume_in_box;
+overlay; deviation render; focus. Primary interface: `stl2ascii mcp`.
 ";
 
 #[derive(Debug, Parser)]
 #[command(
     name = "stl2ascii",
     version,
-    about = "ASCII STL viewer — TUI, snapshot, or stdio MCP",
+    about = "ASCII STL viewer + mesh QA (MCP-first)",
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP
 )]
@@ -126,41 +120,131 @@ pub struct Cli {
     #[arg(value_name = "FILE")]
     pub file: Option<PathBuf>,
 
-    /// Camera preset: front|back|left|right|top|bottom|iso
+    /// Camera preset
     #[arg(long, value_enum)]
     pub preset: Option<CameraPreset>,
 
-    /// Camera yaw (degrees)
+    /// Yaw degrees
     #[arg(long)]
     pub yaw: Option<f32>,
 
-    /// Camera pitch (degrees)
+    /// Pitch degrees
     #[arg(long)]
     pub pitch: Option<f32>,
 
-    /// Zoom factor (>0; larger = closer)
+    /// Zoom (>1 closer about orbit target)
     #[arg(long)]
     pub zoom: Option<f32>,
 
-    /// Horizontal pan
+    /// Pan right (fraction of fit extent)
     #[arg(long)]
     pub pan_x: Option<f32>,
 
-    /// Vertical pan
+    /// Pan up (fraction of fit extent)
     #[arg(long)]
     pub pan_y: Option<f32>,
 
-    /// ASCII shade mode: density|lines
+    /// Orbit target x,y,z
+    #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+    pub focus: Option<Vec<f32>>,
+
+    /// Orbit fit extent (world units)
+    #[arg(long)]
+    pub radius: Option<f32>,
+
+    /// Shade: density|lines
     #[arg(long, value_enum, default_value_t = ShadeMode::Density)]
     pub shade: ShadeMode,
 
-    /// Render once to stdout and exit (leave ASCII in terminal)
+    /// Clip box x,y,z,dx,dy,dz
+    #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+    pub clip: Option<Vec<f32>>,
+
+    /// Snapshot to stdout and exit
     #[arg(long)]
     pub snapshot: bool,
+
+    /// Snapshot width (chars)
+    #[arg(long)]
+    pub width: Option<usize>,
+
+    /// Snapshot height (chars)
+    #[arg(long)]
+    pub height: Option<usize>,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Run local MCP server on stdio (stdout = protocol)
+    /// Stdio MCP server (primary interface)
     Mcp,
+    /// Compare two meshes (histogram + outside volumes)
+    Diff {
+        a: PathBuf,
+        b: PathBuf,
+        /// Clip x,y,z,dx,dy,dz
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        clip: Option<Vec<f32>>,
+        #[arg(long, default_value_t = 20_000)]
+        samples: usize,
+        #[arg(long, default_value_t = 64)]
+        grid: usize,
+    },
+    /// Volume of mesh ∩ box
+    VolumeInBox {
+        file: PathBuf,
+        /// Box x,y,z,dx,dy,dz
+        #[arg(long = "box", value_delimiter = ',', allow_hyphen_values = true)]
+        box_vals: Vec<f32>,
+        #[arg(long, default_value_t = 64)]
+        grid: usize,
+    },
+    /// Print mesh_stats JSON (optional second file for side-by-side)
+    Stats {
+        file: PathBuf,
+        /// Optional second mesh
+        #[arg(long = "b")]
+        file_b: Option<PathBuf>,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        clip: Option<Vec<f32>>,
+    },
+    /// Overlay two meshes (#=A %=B *=both)
+    Overlay {
+        a: PathBuf,
+        b: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        clip: Option<Vec<f32>>,
+        #[arg(long)]
+        width: Option<usize>,
+        #[arg(long)]
+        height: Option<usize>,
+        #[arg(long, value_enum)]
+        preset: Option<CameraPreset>,
+        #[arg(long)]
+        yaw: Option<f32>,
+        #[arg(long)]
+        pitch: Option<f32>,
+        #[arg(long)]
+        zoom: Option<f32>,
+    },
+    /// Deviation-coded surface vs reference mesh
+    Deviation {
+        file: PathBuf,
+        /// Reference mesh for distances
+        #[arg(long = "ref")]
+        reference: PathBuf,
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        clip: Option<Vec<f32>>,
+        #[arg(long)]
+        width: Option<usize>,
+        #[arg(long)]
+        height: Option<usize>,
+        #[arg(long, value_enum)]
+        preset: Option<CameraPreset>,
+        #[arg(long)]
+        yaw: Option<f32>,
+        #[arg(long)]
+        pitch: Option<f32>,
+        #[arg(long)]
+        zoom: Option<f32>,
+    },
 }

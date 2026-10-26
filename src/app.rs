@@ -104,6 +104,8 @@ impl App {
             &self.camera,
             self.shade,
             chunks[1].width as usize,
+            inner.height as usize,
+            None,
         );
         frame.render_widget(Paragraph::new(status), chunks[1]);
     }
